@@ -6,7 +6,10 @@ import MetalSplatter
 public struct ModelRendererViewportDescriptor {
     var viewport: MTLViewport
     var projectionMatrix: simd_float4x4
+    // splats
     var viewMatrix: simd_float4x4
+    // balls
+    var viewMatrix2: simd_float4x4
     var screenSize: SIMD2<Int>
 }
 

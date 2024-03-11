@@ -23,12 +23,14 @@ public class SampleBoxRenderer {
         public var viewport: MTLViewport
         public var projectionMatrix: simd_float4x4
         public var viewMatrix: simd_float4x4
+        public var viewMatrix2: simd_float4x4
         public var screenSize: SIMD2<Int>
 
-        public init(viewport: MTLViewport, projectionMatrix: simd_float4x4, viewMatrix: simd_float4x4, screenSize: SIMD2<Int>) {
+        public init(viewport: MTLViewport, projectionMatrix: simd_float4x4, viewMatrix: simd_float4x4,  viewMatrix2: simd_float4x4, screenSize: SIMD2<Int>) {
             self.viewport = viewport
             self.projectionMatrix = projectionMatrix
             self.viewMatrix = viewMatrix
+            self.viewMatrix2 = viewMatrix2
             self.screenSize = screenSize
         }
     }
@@ -51,6 +53,7 @@ public class SampleBoxRenderer {
     struct Uniforms {
         var projectionMatrix: matrix_float4x4
         var viewMatrix: matrix_float4x4
+        var viewMatrix2: matrix_float4x4
     }
 
     struct UniformsArray {
@@ -148,7 +151,7 @@ public class SampleBoxRenderer {
     private func updateUniforms(forViewports viewports: [ViewportDescriptor]) {
         for (i, viewport) in viewports.enumerated() where i <= maxViewCount {
             uniforms.pointee.setUniforms(index: i, Uniforms(projectionMatrix: viewport.projectionMatrix,
-                                                            viewMatrix: viewport.viewMatrix))
+                                                            viewMatrix: viewport.viewMatrix, viewMatrix2: viewport.viewMatrix2))
         }
     }
 

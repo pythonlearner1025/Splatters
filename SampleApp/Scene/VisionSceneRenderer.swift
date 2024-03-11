@@ -70,17 +70,127 @@ class VisionSceneRenderer {
             self?.updateGenericBalls(coords.coords)
         }
     }
-        
-   // var ballsToRender =
-    
+     
     func updateHandSkeletonPositions(_ pos: HandsUpdates) {
         latestHandTracking.left = pos.left
         latestHandTracking.right = pos.right
     }
         
     func updateGenericBalls(_ balls: [simd_float4x4]) {
+        let r = 15
         for i in 0..<balls.count {
+        
             latestBallCoords.coords[i] = balls[i]
+            // 4, 7, 10, 13
+            isSwipe(balls[r+5], balls[r+8], balls[r+11], balls[r+15])
+            isPinchActivated(balls[r+2], balls[r+5])
+            calcZoom(balls[r+2], balls[r+5])
+        }
+    }    
+    
+    func dist(_ x1: Float, _ y1: Float, _ z1: Float, _ x2: Float, _ y2: Float, _ z2: Float) -> Float {
+        let distance = sqrt(((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1) + (z2 - z1) * (z2 - z1)))
+        return distance
+    }
+    
+    // Time tracking variable
+    var pinchActivated = false
+    var lP : simd_float3 = [Float(0), Float(0), Float(0)]
+    var dV : simd_float3 = [Float(0), Float(0), Float(0)]
+    var lastPinchUpdateTime: TimeInterval = 0
+
+    func isPinchActivated(_ thumbTip: simd_float4x4, _ indexTip: simd_float4x4) {
+        let currentTime = CACurrentMediaTime() // Get current time
+        let updateInterval: TimeInterval = 0.01 // 100 milliseconds
+
+        // Proceed only if 100ms have passed since the last update
+        if currentTime - lastPinchUpdateTime >= updateInterval {
+            let p1 = thumbTip.columns.3
+            let p2 = indexTip.columns.3
+            let x1 = p1.x; let x2 = p2.x
+            let y1 = p1.y; let y2 = p2.y
+            let z1 = p1.z; let z2 = p2.z
+            let thresh = Float(0.070)
+            let d = dist(x1, y1, z1, x2, y2, z2)
+            let zero = Float(0.0)
+            
+            if d != zero {
+                if d < thresh {
+                    pinchActivated = true
+                    dV[0] = x1 - lP[0]
+                    dV[1] = y1 - lP[1]
+                    dV[2] = z1 - lP[2]
+                   // print(dV)
+                    lP = [x1, y1, z1]
+                    
+                    // Update the last update time
+                    lastPinchUpdateTime = currentTime
+                } else {
+                    pinchActivated = false
+                    lP = [x1, y1, z1]
+                }
+            }
+        }
+    }
+
+    var lastDist : Float = 0
+    var zoom : Float = 0
+    var maxZoomDist : Float = 1
+    func calcZoom (_ thumbTip : simd_float4x4, _ indexTip : simd_float4x4) {
+        let p1 = thumbTip.columns.3
+        let p2 = indexTip.columns.3
+        let x1 = p1.x; let x2 = p2.x
+        let y1 = p1.y; let y2 = p2.y
+        let z1 = p1.z; let z2 = p2.z
+        let d = dist(x1,y1,z1,x2,y2,z2)
+        let v = d - lastDist
+        lastDist = d
+        zoom = v / maxZoomDist
+    }
+    
+    // swipe
+    // 4 middle joints of each finger within some proximity
+    // rotate splats in dir of rotation
+    var swipeActivated : Bool = false
+    var rotationAxis = Constants.rotationAxis
+    var lastSwipeZ : Float = 0
+    var lastSwipeUpdateTime: TimeInterval = 0
+    
+    // apparently Y - up, X - left, Z - bottom
+    
+    func isSwipe(_ indexMid : simd_float4x4, _ middleMid : simd_float4x4, _ ringMid : simd_float4x4, _ littleMid : simd_float4x4) {
+          let currentTime = CACurrentMediaTime() // Get current time
+          let updateInterval: TimeInterval = 0.05 // 100 milliseconds
+        
+        if true {
+              let thresh : Float = 0.035
+              let pIndex = indexMid.columns.3
+              let pMiddle = middleMid.columns.3
+              let pRing = ringMid.columns.3
+              let pLittle = littleMid.columns.3
+              
+              // Calculate distances between the joints
+              let dIndexMiddle = dist(pIndex.x, pIndex.y, pIndex.z, pMiddle.x, pMiddle.y, pMiddle.z)
+              let dMiddleRing = dist(pMiddle.x, pMiddle.y, pMiddle.z, pRing.x, pRing.y, pRing.z)
+              let dRingLittle = dist(pRing.x, pRing.y, pRing.z, pLittle.x, pLittle.y, pLittle.z)
+              let zero : Float = 0.0
+            
+            if dIndexMiddle == zero || dMiddleRing == zero || dRingLittle == zero {
+                return
+            }
+            
+            if dIndexMiddle < thresh && dMiddleRing < thresh  {
+                swipeActivated = true
+                // y-axis
+                rotationAxis = simd_float3(indexMid.columns.1.x, indexMid.columns.1.y, indexMid.columns.1.z)
+                var dz = indexMid.columns.3.z - lastSwipeZ
+                rotation += Angle.degrees(dz > Float(0) ? 0.002 : -0.002)
+                lastSwipeZ = indexMid.columns.3.z
+                lastSwipeUpdateTime = currentTime
+            } else {
+                //print("swipe false")
+                swipeActivated = false
+            }
         }
     }
     
@@ -131,22 +241,36 @@ class VisionSceneRenderer {
         }
     }
     
+    var x : Float = 0.0
+    var y : Float = 0.0
+    var z : Float = 0.0
+    
+    
     private func viewports(drawable: LayerRenderer.Drawable, deviceAnchor: DeviceAnchor?) -> [ModelRendererViewportDescriptor] {
        
-        if !firstRender {
-            print("First render")
-            modelRenderer?.resort()
-            firstRender = true
-        }
         
         if let c = modelRenderer?.get_center() {
-            var x =  (!firstRender) ? Float(c[0]) : 0.0
-            var y =  (!firstRender) ? Float(c[1]) : 0.0
-            var z =  (!firstRender) ? Float(c[2]) : 0.0
-            let rotationMatrix = matrix4x4_rotation(radians: Float(rotation.radians),
-                                                    axis: Constants.rotationAxis)
-            // get w,h,l
-            let translationMatrix = matrix4x4_translation(x, y, z)
+            if !firstRender {
+            x = (!firstRender) ? Float(c[0]) : 0.0
+            y = (!firstRender) ? Float(c[1]) : 0.0
+            z = (!firstRender) ? Float(c[2]) : 0.0
+            firstRender = true
+        }
+            // for splats
+            var rotationMatrix = matrix4x4_rotation(radians: Float(rotation.radians),
+                                                    axis: rotationAxis)
+            var rotationMatrix2 = matrix4x4_rotation(radians: Float(0),
+                                                     axis: Constants.rotationAxis )
+            
+            let translationMatrix2 = matrix4x4_translation(0.0, 0.0, 0.0) // keep constant hands // for splats
+            if pinchActivated {
+                x += dV[0]
+                y += dV[1]
+                z += dV[2]
+            }
+            
+            let translationMatrix = matrix4x4_translation(x, y, z) // TODO for pinch translate splats
+            
             // Turn common 3D GS PLY files rightside-up. This isn't generally meaningful, it just
             // happens to be a useful default for the most common datasets at the moment.
             let commonUpCalibration = matrix4x4_rotation(radians: .pi, axis: SIMD3<Float>(0, 0, 1))
@@ -154,6 +278,7 @@ class VisionSceneRenderer {
             let simdDeviceAnchor = deviceAnchor?.originFromAnchorTransform ?? matrix_identity_float4x4
             return drawable.views.map { view in
                 let userViewpointMatrix = (simdDeviceAnchor * view.transform).inverse
+                
                 let projectionMatrix = ProjectiveTransform3D(leftTangent: Double(view.tangents[0]),
                                                              rightTangent: Double(view.tangents[1]),
                                                              topTangent: Double(view.tangents[2]),
@@ -161,11 +286,14 @@ class VisionSceneRenderer {
                                                              nearZ: Double(drawable.depthRange.y),
                                                              farZ: Double(drawable.depthRange.x),
                                                              reverseZ: true)
+                
                 let screenSize = SIMD2(x: Int(view.textureMap.viewport.width),
                                        y: Int(view.textureMap.viewport.height))
+                
                 return ModelRendererViewportDescriptor(viewport: view.textureMap.viewport,
                                                        projectionMatrix: .init(projectionMatrix),
                                                        viewMatrix: userViewpointMatrix * translationMatrix * rotationMatrix, //* commonUpCalibration,
+                                                       viewMatrix2: userViewpointMatrix * translationMatrix2 * rotationMatrix2,
                                                        screenSize: screenSize)
             }
         }
@@ -233,6 +361,7 @@ class VisionSceneRenderer {
         //modelRenderer?.addBalls(latestBallCoords)
 
         let viewports = self.viewports(drawable: drawable, deviceAnchor: deviceAnchor)
+        
         modelRenderer?.render(viewports: viewports,
                               colorTexture: drawable.colorTextures[0],
                               colorStoreAction: .store,

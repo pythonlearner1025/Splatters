@@ -28,12 +28,14 @@ public class SplatRenderer {
         public var viewport: MTLViewport
         public var projectionMatrix: simd_float4x4
         public var viewMatrix: simd_float4x4
+        public var viewMatrix2: simd_float4x4
         public var screenSize: SIMD2<Int>
 
-        public init(viewport: MTLViewport, projectionMatrix: simd_float4x4, viewMatrix: simd_float4x4, screenSize: SIMD2<Int>) {
+        public init(viewport: MTLViewport, projectionMatrix: simd_float4x4, viewMatrix: simd_float4x4, viewMatrix2: simd_float4x4, screenSize: SIMD2<Int>) {
             self.viewport = viewport
             self.projectionMatrix = projectionMatrix
             self.viewMatrix = viewMatrix
+            self.viewMatrix2 = viewMatrix2
             self.screenSize = screenSize
         }
     }
@@ -49,6 +51,7 @@ public class SplatRenderer {
     struct Uniforms {
         var projectionMatrix: matrix_float4x4
         var viewMatrix: matrix_float4x4
+        var viewMatrix2: matrix_float4x4
         var screenSize: SIMD2<UInt32> // Size of screen in pixels
     }
 
@@ -193,7 +196,6 @@ public class SplatRenderer {
         
         // added
         self.ballBuffer = try MetalBuffer(device: device)
-        
         self.splatBuffer = try MetalBuffer(device: device)
         self.splatBufferPrime = try MetalBuffer(device: device)
 
@@ -314,38 +316,34 @@ public class SplatRenderer {
         
     // TODO make sure ball has x,y,z attributes
     public func addBalls(balls: [[Float]]) throws {
-        let latLen = 5
-        let longLen = 5
         let radius = Float(10)
         ballBuffer.count = 0
         do {
-            try ensureAdditionalBallCapacity(latLen * longLen * balls.count)
+            try ensureAdditionalBallCapacity(6 * balls.count)
         } catch {
             Self.log.error("Failed to grow buffers: \(error)")
         }
         for ball in balls {
-            print("x: \(ball[0]) y: \(ball[1]) z: \(ball[2])")
-            ballBuffer.append([Ball(x: ball[0], y: ball[1], z: ball[2])])
-            //
-            /*
-            for latitude in 0..<latLen {
-                let theta = Float(latitude) * Float.pi / Float (latLen) // From 0 to π
-                let sinTheta = sin(theta)
-                let cosTheta = cos(theta)
+            //print("x: \(ball[0]) y: \(ball[1]) z: \(ball[2])")
+            var x = ball[0]
+            var y = ball[1]
+            var z = ball[2]
+            var o = Float(0.01)
+            
+            // triangle 1
+            ballBuffer.append([Ball(x: x, y: y, z: z)])
+            ballBuffer.append([Ball(x: x+o, y: y, z: z)])
+            ballBuffer.append([Ball(x: x, y: y+o, z: z)])
 
-                for longitude in 0..<longLen {
-                    let phi = Float(longitude) * 2 * Float.pi / Float(longLen) // From 0 to 2π
-                    let sinPhi = sin(phi)
-                    let cosPhi = cos(phi)
-
-                    let x = ball[0] + radius * cosPhi * sinTheta
-                    let y = ball[1] + radius * cosTheta
-                    let z = ball[2] + radius * sinPhi * sinTheta
-                }
-            }
-            */
+            // triangle 2
+            ballBuffer.append([Ball(x: x+o, y: y, z: z)])
+            ballBuffer.append([Ball(x: x, y: y+o, z: z)])
+            ballBuffer.append([Ball(x: x+o, y: y+o, z: z)])
+            
+            //ballBuffer.append([Ball(x: x+o, y: y+o, z: z+o)])
+            //ballBuffer.append([Ball(x: ball[0], y: ball[1], z: ball[2])])
         }
-        print("ballBuff size: \(ballBuffer.count)")
+        //print("ballBuff size: \(ballBuffer.count)")
     }
 
     public func add(_ point: SplatScenePoint) throws {
@@ -363,11 +361,12 @@ public class SplatRenderer {
         uniformBufferOffset = UniformsArray.alignedSize * uniformBufferIndex
         uniforms = UnsafeMutableRawPointer(dynamicUniformBuffers.contents() + uniformBufferOffset).bindMemory(to: UniformsArray.self, capacity: 1)
     }
-
+    
+    // wtf is updateUniforms
     private func updateUniforms(forViewports viewports: [ViewportDescriptor]) {
         for (i, viewport) in viewports.enumerated() where i <= maxViewCount {
             let uniforms = Uniforms(projectionMatrix: viewport.projectionMatrix,
-                                    viewMatrix: viewport.viewMatrix,
+                                    viewMatrix: viewport.viewMatrix, viewMatrix2: viewport.viewMatrix2,
                                     screenSize: SIMD2(x: UInt32(viewport.screenSize.x), y: UInt32(viewport.screenSize.y)))
             self.uniforms.pointee.setUniforms(index: i, uniforms)
         }
@@ -467,25 +466,23 @@ public class SplatRenderer {
 
         renderEncoder.setVertexBuffer(dynamicUniformBuffers, offset: uniformBufferOffset, index: BufferIndex.uniforms.rawValue)
         renderEncoder.setVertexBuffer(splatBuffer.buffer, offset: 0, index: BufferIndex.splat.rawValue)
-        
         renderEncoder.drawPrimitives(type: .triangleStrip,
                                      vertexStart: 0,
                                      vertexCount: 4,
                                      instanceCount: splatBuffer.count)
         //
         renderEncoder.pushDebugGroup("Draw Ball Model")
-        
+        //renderEncoder.setTriangleFillMode(.fill)
         renderEncoder.setRenderPipelineState(ballPipelineState)
         renderEncoder.setDepthStencilState(depthState)
 
         renderEncoder.setVertexBuffer(dynamicUniformBuffers, offset: uniformBufferOffset, index: BufferIndex.uniforms.rawValue)
         renderEncoder.setVertexBuffer(ballBuffer.buffer, offset: 0, index: BufferIndex.ball.rawValue)
         
-        renderEncoder.drawPrimitives(type: .triangleStrip,
+        renderEncoder.drawPrimitives(type: .triangle,
                                      vertexStart: 0,
-                                     vertexCount: 4,
+                                     vertexCount: 3,
                                      instanceCount: ballBuffer.count)
-        
         renderEncoder.popDebugGroup()
         renderEncoder.endEncoding()
     }

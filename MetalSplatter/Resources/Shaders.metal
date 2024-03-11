@@ -18,6 +18,7 @@ typedef struct
 {
     matrix_float4x4 projectionMatrix;
     matrix_float4x4 viewMatrix;
+    matrix_float4x4 viewMatrix2;
     uint2 screenSize;
 } Uniforms;
 
@@ -138,23 +139,11 @@ vertex ColorInOut ballVertexShader(uint VertexID [[vertex_id]],
 
     Ball ball = ballArray[InstanceID];
     // what is the balls 
-    float4 viewPosition4 = uniforms.viewMatrix * float4(ball.position, 1);
+    float4 viewPosition4 = uniforms.viewMatrix2 * float4(ball.position, 1);
     float3 viewPosition3 = viewPosition4.xyz;
 
     float4 projectedCenter = uniforms.projectionMatrix * viewPosition4;
 
-    // Simplify bounds checking since we're always projecting a circle
-    /*
-    float bounds = 1.2 * projectedCenter.w;
-    if (projectedCenter.z < -projectedCenter.w ||
-        projectedCenter.x < -bounds ||
-        projectedCenter.x > bounds ||
-        projectedCenter.y < -bounds ||
-        projectedCenter.y > bounds) {
-        out.position = float4(1, 1, 0, 1);
-        return out;
-    }
-    */
 
     // Relative coordinates for the vertices of a quad
     const half2 relativeCoordinatesArray[] = { { -1, -1 }, { -1, 1 }, { 1, -1 }, { 1, 1 } };

@@ -15,6 +15,7 @@ extension SampleBoxRenderer: ModelRenderer {
             ViewportDescriptor(viewport: viewport.viewport,
                                projectionMatrix: viewport.projectionMatrix,
                                viewMatrix: viewport.viewMatrix,
+                               viewMatrix2: viewport.viewMatrix2,
                                screenSize: viewport.screenSize)
         }
         render(viewports: remappedViewports,
