@@ -42,3 +42,4 @@ There are no external dependencies; and the basic math to render gaussian splats
 * [Kevin Kwok's WebGL implementation](https://github.com/antimatter15/splat)
 * [Aras Pranckevičius's Unity implementation](https://github.com/aras-p/UnityGaussianSplatting) and series of very insightful blog posts: [1](https://aras-p.info/blog/2023/09/05/Gaussian-Splatting-is-pretty-cool/), [2](https://aras-p.info/blog/2023/09/13/Making-Gaussian-Splats-smaller/), [3](https://aras-p.info/blog/2023/09/27/Making-Gaussian-Splats-more-smaller/)
 * The original paper's [reference implementation](https://github.com/graphdeco-inria/gaussian-splatting)
+# Splatters
