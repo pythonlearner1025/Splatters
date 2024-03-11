@@ -198,6 +198,14 @@ public class SampleBoxRenderer {
 
         return renderEncoder
     }
+    
+    public func get_center() -> [Double] {
+        return [10.0,10.0,10.0]
+    }
+    
+    public func resort() {
+        
+    }
 
     public func render(viewports: [ViewportDescriptor],
                        colorTexture: MTLTexture,

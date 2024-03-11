@@ -5,4 +5,9 @@
 //  Created by minjune Song on 3/10/24.
 //
 
-import Foundation
+import ARKit
+
+struct HandsUpdates {
+    var left: HandAnchor?
+    var right: HandAnchor?
+}

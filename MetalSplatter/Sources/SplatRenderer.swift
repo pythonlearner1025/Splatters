@@ -9,6 +9,7 @@ typealias Float16 = Float
 #warning("x86_64 targets are unsupported by MetalSplatter and will fail at runtime. MetalSplatter builds on x86_64 only because Xcode builds Swift Packages as universal binaries and provides no way to override this. When Swift supports Float16 on x86_64, this may be revisited.")
 #endif
 
+
 public class SplatRenderer {
     enum Constants {
         // Keep in sync with Shaders.metal : maxViewCount
@@ -41,6 +42,7 @@ public class SplatRenderer {
     enum BufferIndex: NSInteger {
         case uniforms = 0
         case splat    = 1
+        case ball     = 2
     }
 
     // Keep in sync with Shaders.metal : Uniforms
@@ -88,6 +90,12 @@ public class SplatRenderer {
         var covA: PackedHalf3
         var covB: PackedHalf3
     }
+    
+    // add a "circle buffer"
+    struct Ball {
+        var position: MTLPackedFloat3
+        var color: PackedRGBHalf4
+    }
 
     struct SplatIndexAndDepth {
         var index: UInt32
@@ -122,7 +130,8 @@ public class SplatRenderer {
     public var onSortComplete: ((TimeInterval) -> Void)?
 
     private let library: MTLLibrary
-    private var renderPipelineState: MTLRenderPipelineState?
+    private var splatterPipelineState: MTLRenderPipelineState?
+    private var ballPipelineState: MTLRenderPipelineState?
     private var depthState: MTLDepthStencilState?
 
     // dynamicUniformBuffers contains maxSimultaneousRenders uniforms buffers,
@@ -140,6 +149,8 @@ public class SplatRenderer {
     typealias IndexType = UInt32
     // splatBuffer contains one entry for each gaussian splat
     var splatBuffer: MetalBuffer<Splat>
+    var ballBuffer: MetalBuffer<Ball>
+    
     // splatBufferPrime is a copy of splatBuffer, which is not currenly in use for rendering.
     // We use this for sorting, and when we're done, swap it with splatBuffer.
     // There's a good chance that we'll sometimes end up sorting a splatBuffer still in use for
@@ -179,7 +190,10 @@ public class SplatRenderer {
                                                        options: .storageModeShared)!
         self.dynamicUniformBuffers.label = "Uniform Buffers"
         self.uniforms = UnsafeMutableRawPointer(dynamicUniformBuffers.contents()).bindMemory(to: UniformsArray.self, capacity: 1)
-
+        
+        // added
+        self.ballBuffer = try MetalBuffer(device: device)
+        
         self.splatBuffer = try MetalBuffer(device: device)
         self.splatBufferPrime = try MetalBuffer(device: device)
 
@@ -204,23 +218,53 @@ public class SplatRenderer {
     }
 
     private func resetPipelines() {
-        renderPipelineState = nil
+        splatterPipelineState = nil
+        ballPipelineState = nil
         depthState = nil
     }
 
     private func buildPipelinesIfNeeded() throws {
-        if renderPipelineState == nil {
-            renderPipelineState = try buildRenderPipeline()
+        if splatterPipelineState == nil {
+            splatterPipelineState = try buildSplatRenderPipeline()
         }
         if depthState == nil {
             depthState = try buildDepthState()
         }
+        if ballPipelineState == nil {
+            ballPipelineState = try buildBallRenderPipeline()
+        }
     }
 
-    private func buildRenderPipeline() throws -> MTLRenderPipelineState {
+    private func buildBallRenderPipeline() throws -> MTLRenderPipelineState {
         let pipelineDescriptor = MTLRenderPipelineDescriptor()
 
-        pipelineDescriptor.label = "RenderPipeline"
+        pipelineDescriptor.label = "Ball Pipeline"
+        pipelineDescriptor.vertexFunction = library.makeRequiredFunction(name: "ballVertexShader")
+        pipelineDescriptor.fragmentFunction = library.makeRequiredFunction(name: "ballFragmentShader")
+
+        pipelineDescriptor.rasterSampleCount = sampleCount
+
+        let colorAttachment = pipelineDescriptor.colorAttachments[0]!
+        colorAttachment.pixelFormat = colorFormat
+        colorAttachment.isBlendingEnabled = true
+        colorAttachment.rgbBlendOperation = .add
+        colorAttachment.alphaBlendOperation = .add
+        colorAttachment.sourceRGBBlendFactor = .oneMinusDestinationAlpha
+        colorAttachment.sourceAlphaBlendFactor = .oneMinusDestinationAlpha
+        colorAttachment.destinationRGBBlendFactor = .one
+        colorAttachment.destinationAlphaBlendFactor = .one
+        pipelineDescriptor.colorAttachments[0] = colorAttachment
+
+        pipelineDescriptor.depthAttachmentPixelFormat = depthFormat
+        pipelineDescriptor.stencilAttachmentPixelFormat = stencilFormat
+        pipelineDescriptor.maxVertexAmplificationCount = maxViewCount
+        return try device.makeRenderPipelineState(descriptor: pipelineDescriptor)
+    }
+
+    private func buildSplatRenderPipeline() throws -> MTLRenderPipelineState {
+        let pipelineDescriptor = MTLRenderPipelineDescriptor()
+
+        pipelineDescriptor.label = "Splatter Pipeline"
         pipelineDescriptor.vertexFunction = library.makeRequiredFunction(name: "splatVertexShader")
         pipelineDescriptor.fragmentFunction = library.makeRequiredFunction(name: "splatFragmentShader")
 
@@ -259,18 +303,58 @@ public class SplatRenderer {
         return device.makeDepthStencilState(descriptor: depthStateDescriptor)!
     }
 
-    public func ensureAdditionalCapacity(_ pointCount: Int) throws {
+    public func ensureAdditionalSplatterCapacity(_ pointCount: Int) throws {
         try splatBuffer.ensureCapacity(splatBuffer.count + pointCount)
+    }
+    
+    public func ensureAdditionalBallCapacity(_ pointCount: Int) throws {
+        try ballBuffer.ensureCapacity(ballBuffer.count + pointCount)
+    }
+    
+        
+    // TODO make sure ball has x,y,z attributes
+    public func addBalls(balls: [[Float]]) throws {
+        let latLen = 5
+        let longLen = 5
+        let radius = Float(10)
+        ballBuffer.count = 0
+        do {
+            try ensureAdditionalBallCapacity(latLen * longLen * balls.count)
+        } catch {
+            Self.log.error("Failed to grow buffers: \(error)")
+        }
+        for ball in balls {
+            print("x: \(ball[0]) y: \(ball[1]) z: \(ball[2])")
+            ballBuffer.append([Ball(x: ball[0], y: ball[1], z: ball[2])])
+            //
+            /*
+            for latitude in 0..<latLen {
+                let theta = Float(latitude) * Float.pi / Float (latLen) // From 0 to π
+                let sinTheta = sin(theta)
+                let cosTheta = cos(theta)
+
+                for longitude in 0..<longLen {
+                    let phi = Float(longitude) * 2 * Float.pi / Float(longLen) // From 0 to 2π
+                    let sinPhi = sin(phi)
+                    let cosPhi = cos(phi)
+
+                    let x = ball[0] + radius * cosPhi * sinTheta
+                    let y = ball[1] + radius * cosTheta
+                    let z = ball[2] + radius * sinPhi * sinTheta
+                }
+            }
+            */
+        }
+        print("ballBuff size: \(ballBuffer.count)")
     }
 
     public func add(_ point: SplatScenePoint) throws {
         do {
-            try ensureAdditionalCapacity(1)
+            try ensureAdditionalSplatterCapacity(1)
         } catch {
             Self.log.error("Failed to grow buffers: \(error)")
             return
         }
-
         splatBuffer.append([ Splat(point) ])
     }
 
@@ -287,7 +371,7 @@ public class SplatRenderer {
                                     screenSize: SIMD2(x: UInt32(viewport.screenSize.x), y: UInt32(viewport.screenSize.y)))
             self.uniforms.pointee.setUniforms(index: i, uniforms)
         }
-
+        //print("update Uniforms")
         cameraWorldPosition = viewports.map { Self.cameraWorldPosition(forViewMatrix: $0.viewMatrix) }.mean ?? .zero
         cameraWorldForward = viewports.map { Self.cameraWorldForward(forViewMatrix: $0.viewMatrix) }.mean?.normalized ?? .init(x: 0, y: 0, z: -1)
 
@@ -359,13 +443,13 @@ public class SplatRenderer {
                        rasterizationRateMap: MTLRasterizationRateMap?,
                        renderTargetArrayLength: Int,
                        to commandBuffer: MTLCommandBuffer) {
-        guard splatBuffer.count != 0 else { return }
+        guard splatBuffer.count != 0 || ballBuffer.count != 0 else { return }
 
         switchToNextDynamicBuffer()
         updateUniforms(forViewports: viewports)
 
         try? buildPipelinesIfNeeded()
-        guard let renderPipelineState, let depthState else { return }
+        guard let ballPipelineState, let splatterPipelineState, let depthState else { return }
 
         let renderEncoder = renderEncoder(viewports: viewports,
                                           colorTexture: colorTexture,
@@ -375,25 +459,47 @@ public class SplatRenderer {
                                           rasterizationRateMap: rasterizationRateMap,
                                           renderTargetArrayLength: renderTargetArrayLength,
                                           for: commandBuffer)
-
+        //
         renderEncoder.pushDebugGroup("Draw Splat Model")
 
-        renderEncoder.setRenderPipelineState(renderPipelineState)
+        renderEncoder.setRenderPipelineState(splatterPipelineState)
         renderEncoder.setDepthStencilState(depthState)
 
         renderEncoder.setVertexBuffer(dynamicUniformBuffers, offset: uniformBufferOffset, index: BufferIndex.uniforms.rawValue)
         renderEncoder.setVertexBuffer(splatBuffer.buffer, offset: 0, index: BufferIndex.splat.rawValue)
-
+        
         renderEncoder.drawPrimitives(type: .triangleStrip,
                                      vertexStart: 0,
                                      vertexCount: 4,
                                      instanceCount: splatBuffer.count)
+        //
+        renderEncoder.pushDebugGroup("Draw Ball Model")
+        
+        renderEncoder.setRenderPipelineState(ballPipelineState)
+        renderEncoder.setDepthStencilState(depthState)
 
+        renderEncoder.setVertexBuffer(dynamicUniformBuffers, offset: uniformBufferOffset, index: BufferIndex.uniforms.rawValue)
+        renderEncoder.setVertexBuffer(ballBuffer.buffer, offset: 0, index: BufferIndex.ball.rawValue)
+        
+        renderEncoder.drawPrimitives(type: .triangleStrip,
+                                     vertexStart: 0,
+                                     vertexCount: 4,
+                                     instanceCount: ballBuffer.count)
+        
         renderEncoder.popDebugGroup()
         renderEncoder.endEncoding()
     }
 
     // Sort splatBuffer (read-only), storing the results in splatBuffer (write-only) then swap splatBuffer and splatBufferPrime
+    public func get_center() -> [Double] {
+        return [avg_x, avg_y, avg_z]
+    }
+    
+    // avg dists
+    public var avg_x = 0.0
+    public var avg_y = 0.0
+    public var avg_z = 0.0
+    
     public func resort() {
         guard !sorting else { return }
         sorting = true
@@ -417,6 +523,10 @@ public class SplatRenderer {
                 sorting = false
                 onSortComplete?(-sortStartTime.timeIntervalSinceNow)
             }
+            
+            var total_x = 0.0
+            var total_y = 0.0
+            var total_z = 0.0
 
             if Constants.sortByDistance {
                 for i in 0..<splatCount {
@@ -425,6 +535,9 @@ public class SplatRenderer {
                     let dx = splatPosition.x - cameraWorldPosition.x
                     let dy = splatPosition.y - cameraWorldPosition.y
                     let dz = splatPosition.z - cameraWorldPosition.z
+                    total_x += Double(splatPosition.x)
+                    total_y += Double(splatPosition.y)
+                    total_z += Double(splatPosition.z)
                     orderAndDepthTempSort[i].depth = dx*dx + dy*dy + dz*dz // (splatPosition - cameraWorldPosition).lengthSquared
                 }
             } else {
@@ -434,8 +547,19 @@ public class SplatRenderer {
                     let xx = splatPosition.x * cameraWorldForward.x
                     let yy = splatPosition.y * cameraWorldForward.y
                     let zz = splatPosition.z * cameraWorldForward.z
+                    total_x += Double(splatPosition.x)
+                    total_y += Double(splatPosition.y)
+                    total_z += Double(splatPosition.z)
                     orderAndDepthTempSort[i].depth = xx + yy + zz // splatPosition dot cameraWorldForward
                 }
+                 
+                
+            }
+            
+           DispatchQueue.main.async {
+                self.avg_x = total_x / Double(splatCount)
+                self.avg_y = total_y / Double(splatCount)
+                self.avg_z = total_z / Double(splatCount)
             }
 
             if renderFrontToBack {
@@ -463,7 +587,7 @@ public class SplatRenderer {
 extension SplatRenderer: SplatSceneReaderDelegate {
     public func didStartReading(withPointCount pointCount: UInt32) {
         Self.log.info("Will read \(pointCount) points")
-        try? ensureAdditionalCapacity(Int(pointCount))
+        try? ensureAdditionalSplatterCapacity(Int(pointCount))
     }
 
     public func didRead(points: [SplatIO.SplatScenePoint]) {
@@ -479,6 +603,15 @@ extension SplatRenderer: SplatSceneReaderDelegate {
     public func didFailReading(withError error: Error?) {
         readFailure = error
         Self.log.error("Failed to read points: \(error)")
+    }
+}
+
+extension SplatRenderer.Ball {
+    init(x : Float, y : Float, z : Float) {
+        self.init(
+            position: MTLPackedFloat3Make(x,y,z),
+            color: SplatRenderer.PackedRGBHalf4(r: Float16(1), g: Float16(1), b: Float16(1), a: Float16(1))
+        )
     }
 }
 

@@ -8,6 +8,7 @@ import simd
 import SwiftUI
 
 class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
+    @Binding var isFlippedZ: Bool = true
     let metalKitView: MTKView
     let device: MTLDevice
     let commandQueue: MTLCommandQueue
@@ -79,7 +80,7 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
 
         return ModelRendererViewportDescriptor(viewport: viewport,
                                                projectionMatrix: projectionMatrix,
-                                               viewMatrix: translationMatrix * rotationMatrix * commonUpCalibration,
+                                               viewMatrix: translationMatrix * commonUpCalibration * rotationMatrix,
                                                screenSize: SIMD2(x: Int(drawableSize.width), y: Int(drawableSize.height)))
     }
 

@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @State private var isPickingFile = false
+    @State private var location: CGPoint = .zero
 
 #if os(macOS)
     @Environment(\.openWindow) private var openWindow
@@ -16,9 +17,7 @@ struct ContentView: View {
 #elseif os(visionOS)
     @Environment(\.openImmersiveSpace) var openImmersiveSpace
     @Environment(\.dismissImmersiveSpace) var dismissImmersiveSpace
-
     @State var immersiveSpaceIsShown = false
-
     private func openWindow(value: ModelIdentifier) {
         Task {
             switch await openImmersiveSpace(value: value) {
@@ -32,7 +31,6 @@ struct ContentView: View {
         }
     }
 #endif
-
     var body: some View {
 #if os(macOS) || os(visionOS)
         mainView
@@ -81,9 +79,7 @@ struct ContentView: View {
                     break
                 }
             }
-
             Spacer()
-
             Button("Show Sample Box") {
                 openWindow(value: ModelIdentifier.sampleBox)
             }
@@ -92,9 +88,7 @@ struct ContentView: View {
 #if os(visionOS)
             .disabled(immersiveSpaceIsShown)
 #endif
-
             Spacer()
-
 #if os(visionOS)
             Button("Dismiss Immersive Space") {
                 Task {
@@ -103,9 +97,10 @@ struct ContentView: View {
                 }
             }
             .disabled(!immersiveSpaceIsShown)
-
             Spacer()
 #endif // os(visionOS)
+            
         }
+        
     }
 }

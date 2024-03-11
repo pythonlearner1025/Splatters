@@ -61,7 +61,7 @@ class MetalBuffer<T> {
             throw Error.capacityGreatedThanMaxCapacity(requested: capacity, max: maxCapacity)
         }
 
-        log.info("Allocating a new buffer of size \(MemoryLayout<T>.stride) * \(newCapacity) = \(Float(MemoryLayout<T>.stride * newCapacity) / (1024.0 * 1024.0))mb")
+       // log.info("Allocating a new buffer of size \(MemoryLayout<T>.stride) * \(newCapacity) = \(Float(MemoryLayout<T>.stride * newCapacity) / (1024.0 * 1024.0))mb")
         guard let newBuffer = device.makeBuffer(length: MemoryLayout<T>.stride * newCapacity,
                                                 options: .storageModeShared) else {
             throw Error.bufferCreationFailed

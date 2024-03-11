@@ -1,19 +1,15 @@
 import SwiftUI
 import RealityKit
 import ARKit
+import simd
 
 @MainActor
 class 🥽AppModel: ObservableObject {
     @Published private(set) var authorizationStatus: ARKitSession.AuthorizationStatus?
     @Published var selectedLeft: Bool = false
     @Published var selectedRight: Bool = false
-    
     @Published var latestHandTracking: HandsUpdates = .init(left: nil, right: nil)
     
-    struct HandsUpdates {
-        var left: HandAnchor?
-        var right: HandAnchor?
-    }
     
     private let session = ARKitSession()
     private let handTracking = HandTrackingProvider()
@@ -42,10 +38,8 @@ class 🥽AppModel: ObservableObject {
         .littleFingerTip,
         .wrist
     ]
+    @Published var genericBallCoords : BallCoords = .init()
     let genericBalls: [Entity] = 🧩Entity.genericBalls();
-    
-    private let sound1: AudioFileResource = try! .load(named: "sound1")
-    private let sound2: AudioFileResource = try! .load(named: "sound2")
     
     private var coolDownSelection: Bool = false
 }
@@ -110,15 +104,9 @@ extension 🥽AppModel {
             case 🧩Name.fingerLeft:
                 self.selectedLeft.toggle()
                 self.fingerEntities[.left]?.components.set(🧩Model.fingerTip(self.selectedLeft))
-                let player = targetedEntity.prepareAudio(self.selectedLeft ? self.sound1 : self.sound2)
-                player.gain = -8
-                player.play()
             case 🧩Name.fingerRight:
                 self.selectedRight.toggle()
                 self.fingerEntities[.right]?.components.set(🧩Model.fingerTip(self.selectedRight))
-                let player = targetedEntity.prepareAudio(self.selectedRight ? self.sound1 : self.sound2)
-                player.gain = -8
-                player.play()
             default:
                 assertionFailure()
                 break
@@ -165,8 +153,13 @@ private extension 🥽AppModel {
             let start = handAnchor.chirality == .left ? 0 : 16
             for i in 0..<16 {
                 let pos = handAnchor.handSkeleton?.joint(handJoints[i])
-                let worldPos = handAnchor.originFromAnchorTransform * pos!.anchorFromJointTransform
-                self.genericBalls[i + start].setTransformMatrix(worldPos, relativeTo:nil)
+                // 4x4
+                // just take last column?
+                let transformMatrix = handAnchor.originFromAnchorTransform * pos!.anchorFromJointTransform
+                // save the worldPos
+                //[simd_float4x4]
+                self.genericBallCoords.coords[i + start] = transformMatrix
+                self.genericBalls[i + start].setTransformMatrix(transformMatrix, relativeTo:nil)
             }
             
             guard handAnchor.isTracked,

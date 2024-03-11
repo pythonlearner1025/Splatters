@@ -1,6 +1,7 @@
 import Foundation
 import Metal
 import simd
+import MetalSplatter
 
 public struct ModelRendererViewportDescriptor {
     var viewport: MTLViewport
@@ -18,4 +19,7 @@ public protocol ModelRenderer {
                 rasterizationRateMap: MTLRasterizationRateMap?,
                 renderTargetArrayLength: Int,
                 to commandBuffer: MTLCommandBuffer)
+    func addBalls(balls: [[Float]]) throws
+    func resort()
+    func get_center() -> [Double]
 }

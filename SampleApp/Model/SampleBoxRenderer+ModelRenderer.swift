@@ -1,5 +1,6 @@
 import Metal
 import SampleBoxRenderer
+import MetalSplatter
 
 extension SampleBoxRenderer: ModelRenderer {
     public func render(viewports: [ModelRendererViewportDescriptor],
@@ -25,4 +26,7 @@ extension SampleBoxRenderer: ModelRenderer {
                renderTargetArrayLength: renderTargetArrayLength,
                to: commandBuffer)
     }
+    public func addBalls(balls: [[Float]]) {}
+    //func resort()
+    //func get_center() -> [Double]
 }

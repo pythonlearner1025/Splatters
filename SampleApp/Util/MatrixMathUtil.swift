@@ -27,6 +27,13 @@ func matrix_perspective_right_hand(fovyRadians fovy: Float, aspectRatio: Float, 
     let zs = farZ / (nearZ - farZ)
     return matrix_float4x4.init(columns:(vector_float4(xs,  0, 0,   0),
                                          vector_float4( 0, ys, 0,   0),
-                                         vector_float4( 0,  0, zs, -1),
+                                         vector_float4( 0,  0, zs, 1),
                                          vector_float4( 0,  0, zs * nearZ, 0)))
+}
+
+// Extension to easily access an identity matrix
+extension matrix_float4x4 {
+    static var identity: matrix_float4x4 {
+        matrix_float4x4(diagonal: SIMD4<Float>(1, 1, 1, 1))
+    }
 }

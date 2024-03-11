@@ -11,6 +11,7 @@ enum BufferIndex: int32_t
 {
     BufferIndexUniforms = 0,
     BufferIndexSplat    = 1,
+    BufferIndexBall     = 2
 };
 
 typedef struct
@@ -32,6 +33,12 @@ typedef struct
     packed_half3 covA;
     packed_half3 covB;
 } Splat;
+    
+typedef struct
+{
+    packed_float3 position;
+    packed_half4 color;
+} Ball;
 
 typedef struct
 {
@@ -116,6 +123,64 @@ void decomposeCovariance(float3 cov2D, thread float2 &v1, thread float2 &v2) {
     v2 = eigenvector2 * sqrt(lambda2);
 }
 
+// how to define ball geometry? 
+vertex ColorInOut ballVertexShader(uint VertexID [[vertex_id]],
+                                   uint InstanceID [[instance_id]],
+                                   ushort amp_id [[amplification_id]],
+                                   constant Ball* ballArray [[
+                                       buffer(BufferIndexBall)]],
+                                   constant UniformsArray & uniformsArray [[
+                                        buffer(BufferIndexUniforms)]]
+                                   ) {
+    ColorInOut out;
+
+    Uniforms uniforms = uniformsArray.uniforms[min(int(amp_id), kMaxViewCount)];
+
+    Ball ball = ballArray[InstanceID];
+    // what is the balls 
+    float4 viewPosition4 = uniforms.viewMatrix * float4(ball.position, 1);
+    float3 viewPosition3 = viewPosition4.xyz;
+
+    float4 projectedCenter = uniforms.projectionMatrix * viewPosition4;
+
+    // Simplify bounds checking since we're always projecting a circle
+    /*
+    float bounds = 1.2 * projectedCenter.w;
+    if (projectedCenter.z < -projectedCenter.w ||
+        projectedCenter.x < -bounds ||
+        projectedCenter.x > bounds ||
+        projectedCenter.y < -bounds ||
+        projectedCenter.y > bounds) {
+        out.position = float4(1, 1, 0, 1);
+        return out;
+    }
+    */
+
+    // Relative coordinates for the vertices of a quad
+    const half2 relativeCoordinatesArray[] = { { -1, -1 }, { -1, 1 }, { 1, -1 }, { 1, 1 } };
+    half2 relativeCoordinates = relativeCoordinatesArray[VertexID];
+    
+    // Use the screen size to adjust the size of the projected ball
+    half2 screenSizeFloat = half2(uniforms.screenSize.x, uniforms.screenSize.y);
+    // Calculate the screen-space delta for the current vertex
+    half2 projectedScreenDelta = relativeCoordinates * kBoundsRadius / screenSizeFloat;
+    
+    // Position adjustments to fit the projected circle
+    // idk what this is
+    out.position = float4(projectedCenter.x + projectedScreenDelta.x * projectedCenter.w,
+                          projectedCenter.y + projectedScreenDelta.y * projectedCenter.w,
+                          projectedCenter.z,
+                          projectedCenter.w);
+    
+    out.relativePosition = kBoundsRadius * relativeCoordinates;
+    out.color = ball.color;
+    return out;
+}
+    
+fragment half4 ballFragmentShader(ColorInOut in [[stage_in]]) {
+    return in.color; // Simply return the color passed from the vertex shader
+}
+    
 vertex ColorInOut splatVertexShader(uint vertexID [[vertex_id]],
                                     uint instanceID [[instance_id]],
                                     ushort amp_id [[amplification_id]],
@@ -126,6 +191,7 @@ vertex ColorInOut splatVertexShader(uint vertexID [[vertex_id]],
     Uniforms uniforms = uniformsArray.uniforms[min(int(amp_id), kMaxViewCount)];
 
     Splat splat = splatArray[instanceID];
+      //4x1                          //4x4               //4x1
     float4 viewPosition4 = uniforms.viewMatrix * float4(splat.position, 1);
     float3 viewPosition3 = viewPosition4.xyz;
 
@@ -135,7 +201,8 @@ vertex ColorInOut splatVertexShader(uint vertexID [[vertex_id]],
     float2 axis1;
     float2 axis2;
     decomposeCovariance(cov2D, axis1, axis2);
-
+    
+               //4x1                         // 4x4              /4x1
     float4 projectedCenter = uniforms.projectionMatrix * viewPosition4;
 
     float bounds = 1.2 * projectedCenter.w;
